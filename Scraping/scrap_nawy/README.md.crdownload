@@ -1,0 +1,152 @@
+# Nawy Scraper — Setup & Run Guide
+
+## What this scraper collects
+
+| Field | Notes |
+|---|---|
+| Developer | Name, ID, URL |
+| Project (Compound) | Name, ID, area/location |
+| Phase | Name, ID — `NULL` when project has no phases |
+| `has_phases` flag | Always set — makes no-phase projects explicit |
+| Unit type | Apartment, Villa, Townhouse, Duplex, etc. |
+| Bedrooms | Integer |
+| Bathrooms | Integer |
+| Area | Numeric in sqm |
+| Price | Numeric value |
+| Currency | `EGP`, `USD`, `EUR`, `AED`, `SAR` — auto-detected |
+| Payment plan | Down payment %, instalment years, description |
+| Unit URL | Direct link to unit on Nawy |
+
+---
+
+## Prerequisites
+
+- Python 3.11+
+- PostgreSQL (local or remote)
+- ~2 GB RAM free (Playwright runs Chromium)
+
+---
+
+## Step 1 — Create the database
+
+```bash
+createdb nawy_db
+psql -U youruser -d nawy_db -f schema.sql
+```
+
+---
+
+## Step 2 — Install dependencies
+
+```bash
+pip install -r requirements.txt
+playwright install chromium   # downloads ~130MB Chromium binary
+```
+
+---
+
+## Step 3 — Configure the connection string
+
+Open `scraper.py` and edit line ~55:
+
+```python
+DB_DSN = "postgresql://USER:PASSWORD@HOST:5432/nawy_db"
+```
+
+---
+
+## Step 4 — Run
+
+```bash
+python scraper.py
+```
+
+Progress is printed to console AND written to `nawy_scraper.log`.
+
+---
+
+## Expected runtime
+
+| Scale | Approx. time |
+|---|---|
+| ~100 developers | 5–10 minutes |
+| ~800+ compounds | 3–6 hours total |
+| 15,000+ units | included in above |
+
+Nawy is polite-scraped at 1.5 sec/page with 3 parallel workers.
+Adjust `CONCURRENCY` and `REQUEST_DELAY` in `scraper.py` if needed.
+
+---
+
+## Useful queries after scraping
+
+### All units with currency breakdown
+```sql
+SELECT currency, COUNT(*), MIN(price), AVG(price)::NUMERIC(18,0), MAX(price)
+FROM units
+GROUP BY currency
+ORDER BY COUNT(*) DESC;
+```
+
+### Projects without phases
+```sql
+SELECT * FROM v_projects_no_phases;
+```
+
+### Full flat listing
+```sql
+SELECT * FROM v_full_listing
+WHERE developer = 'Mountain View'
+ORDER BY phase, price;
+```
+
+### Units priced in USD
+```sql
+SELECT developer, project, phase, unit_type, bedrooms, area_sqm, price
+FROM v_full_listing
+WHERE currency = 'USD'
+ORDER BY price;
+```
+
+### Average price per sqm by developer
+```sql
+SELECT developer_name, currency,
+       AVG(price / NULLIF(area_sqm, 0))::NUMERIC(12,0) AS avg_price_per_sqm
+FROM units
+WHERE area_sqm > 0 AND price > 0
+GROUP BY developer_name, currency
+ORDER BY avg_price_per_sqm DESC;
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `playwright install` fails | Run with `sudo` or check disk space |
+| Units not loading | Nawy may have updated their JS — increase `REQUEST_DELAY` to 3 |
+| Getting 403 / blocked | Set `CONCURRENCY = 1` and increase delay to 3–4 sec |
+| DB connection refused | Check PostgreSQL is running: `pg_isready` |
+| `ON CONFLICT` errors | Schema not applied — re-run `schema.sql` |
+
+---
+
+## Architecture diagram
+
+```
+/developer (HTML, static)
+    └── developer cards → Developer IDs + slugs
+
+/developer/{id}-{slug} (HTML, mostly static)
+    └── compound links → Compound IDs + slugs
+
+/compound/{id}-{slug} (JS rendered via Playwright)
+    ├── Has "Phases" section?
+    │     YES → collect phase URLs
+    │           └── /compound/{phase-id}-{phase-slug}
+    │                 └── unit cards (paginated)
+    │                       └── /property/{unit-id} (unit detail)
+    └── NO  → unit cards directly (paginated)
+                  └── /property/{unit-id}
+```
