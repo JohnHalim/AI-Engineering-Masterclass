@@ -17,21 +17,19 @@ def property_json_url(base_url: str, build_id: str, compound_slug: str, property
     
 def filename_from_url(url: str, index: int) -> str:
     """
-    Derive a clean filename from a CDN image URL.
-    https://.../image/7923/high.webp  →  7923_high.webp
-    Falls back to 0001.webp if URL is too short.
+    Derive a clean filename from an image URL.
+    Uses only the last path segment (the actual filename).
+    Falls back to index-based name if the URL has no clear filename.
     """
     path  = urlparse(url).path
-    parts = [p for p in path.split("/") if p]   # remove empty segments
+    parts = [p for p in path.split("/") if p]
 
-    if len(parts) >= 2:
-        name = "_".join(parts[-2:])             # join last two: "7923_high.webp"
-    else:
-        ext  = parts[-1].rsplit(".", 1)[-1] if parts else "webp"
-        name = f"{index:04d}.{ext}"
+    if not parts:
+        return f"{index:04d}.bin"
 
-    name = name.split("?")[0]                   # strip any query string
-    return safe_name(name)
+    # use only the last segment — the actual file name
+    raw = parts[-1].split("?")[0]      # strip query string
+    return safe_name(raw) or f"{index:04d}.bin"
 
 
 def extract_image_url(item) -> str:

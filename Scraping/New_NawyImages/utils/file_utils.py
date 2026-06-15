@@ -6,7 +6,9 @@ from urllib.parse import unquote
 def safe_name(text: str) -> str:
     text = unquote(str(text))
     text = re.sub(r'[\\/:*?"<>|]', "_", text)
-    return text[:120] or "unnamed"
+    text = text.replace(" ", "_")       # ← add this line
+    text = text.strip("._")
+    return text[:60] or "unnamed"
     
 
 def load_json(path: str) -> Optional[Any]:
