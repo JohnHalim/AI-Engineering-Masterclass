@@ -21,8 +21,8 @@ class JsonClient:
                 if response.status_code == 200:
                     return response.json()
                 
-                if response.status_code == 404:
-                    log.debug(f"404 skipping: {url}")
+                if response.status_code in (404, 500):
+                    log.debug(f"{response.status_code} skipping: {url}")
                     return None
                 
                 log.warning(f"HTTP {response.status_code} attempt {attempt}: {url}")
